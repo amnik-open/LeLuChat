@@ -1,0 +1,86 @@
+networks:
+    leluchat:
+      name: leluchat
+services:
+  redis:
+    image: 'redis:latest'
+    container_name: 'leluchat_redis'
+    ports:
+      - '6379:6379'
+    volumes:
+      - './redisdata:/data'
+    networks:
+      - leluchat
+  rabbitmq:
+    container_name: 'leluchat_rabbitmq'
+    image: 'rabbitmq:latest'
+    ports:
+      - '5672:5672'
+    environment:
+      - RABBITMQ_DEFAULT_USER=user
+      - RABBITMQ_DEFAULT_PASS=password
+    networks:
+      - leluchat
+  db:
+    image: postgres
+    container_name: 'leluchat_db'
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/db:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    networks:
+      - leluchat
+  auth:
+    image: freeuphub/leluchat_auth:1.0.0
+    command: python manage.py runserver 0.0.0.0:8000
+    container_name: leluchat_auth
+    environment:
+      - DJANGO_RPC_SERVERS_START=TRUE
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
+    ports:
+      - "8000:8000"
+    networks:
+      - leluchat
+    depends_on:
+      - rabbitmq
+      - db
+  celery:
+    image: freeuphub/leluchat_auth:1.0.0
+    container_name: leluchat_celery
+    command: celery -A leluchat_auth worker -l INFO
+    environment:
+      - DJANGO_RPC_SERVERS_START=FALSE
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
+    networks:
+      - leluchat
+    depends_on:
+      - auth
+      - redis
+  arsenal:
+    image: freeuphub/leluchat_arsenal:1.0.2
+    container_name: leluchat_arsenal
+    command: python manage.py runserver 0.0.0.0:8001
+    environment:
+      - DJANGO_CONSUME_MESSAGES=True
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/postgres
+    ports:
+      - "8001:8001"
+    networks:
+      - leluchat
+    depends_on:
+      - rabbitmq
+      - db
+  messaging:
+    image: freeuphub/leluchat_messaging:1.0.0
+    container_name: leluchat_messaging
+    command: python manage.py runserver 0.0.0.0:8002
+    ports:
+      - "8002:8002"
+    networks:
+      - leluchat
+    depends_on:
+      - rabbitmq
